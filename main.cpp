@@ -1,7 +1,7 @@
 /**
 * Author: Leanna Moy
-* Assignment: Simple 2D Scene
-* Date due: 2023-06-11, 11:59pm
+* Assignment: Pong Clone
+* Date due: 2023-10-21, 11:59pm
 * I pledge that I have completed this assignment without
 * collaborating with anyone else, in conformance with the
 * NYU School of Engineering Policies and Procedures on
@@ -10,12 +10,13 @@
 
 #define GL_SILENCE_DEPRECATION
 #define STB_IMAGE_IMPLEMENTATION
+#define GL_GLEXT_PROTOTYPES 1
+#define LOG(argument) std::cout << argument << '\n'
 
 #ifdef _WINDOWS
 #include <GL/glew.h>
 #endif
 
-#define GL_GLEXT_PROTOTYPES 1
 #include <SDL.h>
 #include <SDL_opengl.h>
 #include "glm/mat4x4.hpp"
@@ -23,20 +24,16 @@
 #include "ShaderProgram.h"
 #include "stb_image.h"
 
-enum Coordinate
-{
-    x_coordinate,
-    y_coordinate
-};
-
-#define LOG(argument) std::cout << argument << '\n'
+#include <ctime>
+#include "cmath"
+#include <vector>
 
 const int WINDOW_WIDTH = 640,
 WINDOW_HEIGHT = 480;
 
-const float BG_RED = 0.0f,
-BG_BLUE = 0.0f,
-BG_GREEN = 0.19f,
+const float BG_RED = 0.5f,
+BG_BLUE = 0.549f,
+BG_GREEN = 0.9059f,
 BG_OPACITY = 1.0f;
 
 const int VIEWPORT_X = 0,
@@ -47,53 +44,75 @@ VIEWPORT_HEIGHT = WINDOW_HEIGHT;
 const char V_SHADER_PATH[] = "shaders/vertex_textured.glsl",
 F_SHADER_PATH[] = "shaders/fragment_textured.glsl";
 
+
 const float MILLISECONDS_IN_SECOND = 1000.0;
 
-const int NUMBER_OF_TEXTURES = 1; // to be generated, that is
-const GLint LEVEL_OF_DETAIL = 0;  // base image level; Level n is the nth mipmap reduction image
+const int NUMBER_OF_TEXTURES = 1;   // to be generated, that is
+const GLint LEVEL_OF_DETAIL = 0;   // base image level; Level n is the nth mipmap reduction image
 const GLint TEXTURE_BORDER = 0;   // this value MUST be zero
 
-const char PLAYER_SPRITE_FILEPATH[] = "/Users/leann/Documents/CS3113/astrocat.png";
-const char MOON_FILEPATH[] = "/Users/leann/Documents/CS3113/moon.png";
-const char FISH_FILEPATH[] = "/Users/leann/Documents/CS3113/slime fish.png";
+const char PLAYER_SPRITE_FILEPATH[] = "assets/p1cat.png";
+const char PLAYER2_FILEPATH[] = "assets/p2cat.png";
+const char BALL_FILEPATH[] = "assets/ball.png";
+const char P1WIN_FILEPATH[] = "assets/p1 wins.png";
+const char P2WIN_FILEPATH[] = "assets/p2 wins.png";
+const char START_TEXT_FILEPATH[] = "assets/start text.png";
+
 
 SDL_Window* g_display_window;
 bool g_game_is_running = true;
-bool g_is_growing = true;
 
 ShaderProgram g_shader_program;
-glm::mat4 view_matrix, cat_model_matrix, m_projection_matrix, m_trans_matrix,
-moon_model_matrix, fish_model_matrix;
+GLuint        g_player_texture_id, player2_texture_id, ball_texture_id, p1w_id, p2w_id, start_text_id;
+glm::mat4     g_view_matrix,
+g_model_matrix,
+g_projection_matrix,
+player1_middle, player2_middle, ball_model_matrix;
 
-float m_previous_ticks = 0.0f;
+glm::mat4 player1_top, player1_bottom, player2_top, player2_bottom;
+glm::mat4 p1_win_mm, p2_win_mm, start_text_mm;
 
-GLuint cat_texture_id;
-GLuint moon_texture_id;
-GLuint fish_texture_id;
+float g_previous_ticks = 0.0f;
 
+// ––––––––––––––––––––––––––––Player1 Stuff––––––––––––––––––––––––––––––– //
+glm::vec3 player1_mid_pos = glm::vec3(-4.0f, 0.0f, 0.0f);
+glm::vec3 player1_top_pos = glm::vec3(-4.0f, 0.0f, 0.0f);
+glm::vec3 player1_bot_pos = glm::vec3(-4.0f, 0.0f, 0.0f);
+glm::vec3 player1_movement = glm::vec3(0.0f, 0.0f, 0.0f);     
 
-// Rotation stuff
-const float RADIUS = 2.5f;
-const float ROT_ANGLE = glm::radians(-0.0025f);
-const float ROT_SPEED = 0.001f;
-float g_angle = 0.0f;
-float g_x_coord = RADIUS,
-        g_y_coord = 0.0f;
+float g_player_speed = 5.0f;  // move 1 unit per second        
 
-// Translation stuff
-float fish_x = -10.0f;
+// ––––––––––––––––––––––––––––Player2 Stuff––––––––––––––––––––––––––––––– //
+glm::vec3 player2_mid_pos = glm::vec3(4.0f, 0.0f, 0.0f);
+glm::vec3 player2_top_pos = glm::vec3(4.0f, 0.0f, 0.0f);
+glm::vec3 player2_bot_pos = glm::vec3(4.0f, 0.0f, 0.0f);
+glm::vec3 player2_movement = glm::vec3(0.0f, 0.0f, 0.0f);
+glm::vec3 cpu_movement = glm::vec3(0.0f, 1.0f, 0.0f);
+bool cpu_mode = false;
+glm::vec3 ytranslation = glm::vec3(0.0f, 0.3f, 0.0f); //consistent distance between 3 model matrices
 
+// ––––––––––––––––––––––––––––Ball/Game Stuff––––––––––––––––––––––––––––––– //
+glm::vec3 ball_position = glm::vec3(0.0f, 0.0f, 0.0f);
+glm::vec3 ball_movement = glm::vec3(0.0f, 0.0f, 0.0f);
+const float MINIMUM_COLLISION_DISTANCE = 0.5f;
+bool game_started = false;
+bool game_won = false;
+const float ROT_ANGLE = 0.2f;
+int winner = 0; // an int for who won
+const double borderx = 5.0;
+const double bordery = 3.5;
 
-float get_screen_to_ortho(float coordinate, Coordinate axis)
-{
-    switch (axis) {
-    case x_coordinate:
-        return ((coordinate / WINDOW_WIDTH) * 10.0f) - (10.0f / 2.0f);
-    case y_coordinate:
-        return (((WINDOW_HEIGHT - coordinate) / WINDOW_HEIGHT) * 7.5f) - (7.5f / 2.0);
-    default:
-        return 0.0f;
-    }
+// ––––––––––––––––––––––––––––Check Collision––––––––––––––––––––––––––––––– //
+bool check_collision(glm::vec3& position_a, glm::vec3& position_b, bool middle) {
+    //bool middle: making the middle part of the paddle easier to hit than the other 2 parts
+    
+    const float distance = (middle) ? MINIMUM_COLLISION_DISTANCE : MINIMUM_COLLISION_DISTANCE-0.01;
+    
+
+    return sqrt(
+        pow(position_b[0] - position_a[0], 2) +
+        pow(position_b[1] - position_a[1], 2)
+    ) < distance;
 }
 
 GLuint load_texture(const char* filepath)
@@ -105,7 +124,6 @@ GLuint load_texture(const char* filepath)
     if (image == NULL)
     {
         LOG("Unable to load image. Make sure the path is correct.");
-        LOG(filepath);
         assert(false);
     }
 
@@ -125,9 +143,12 @@ GLuint load_texture(const char* filepath)
     return textureID;
 }
 
+
+
 void initialise()
 {
-    g_display_window = SDL_CreateWindow("Space",
+    SDL_Init(SDL_INIT_VIDEO);
+    g_display_window = SDL_CreateWindow("Pongy",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_OPENGL);
@@ -143,103 +164,289 @@ void initialise()
 
     g_shader_program.load(V_SHADER_PATH, F_SHADER_PATH);
 
-    cat_model_matrix = glm::mat4(1.0f);
-    moon_model_matrix = glm::mat4(1.0f);
-    fish_model_matrix = glm::mat4(1.0f);
+    g_player_texture_id = load_texture(PLAYER_SPRITE_FILEPATH);
+    player2_texture_id = load_texture(PLAYER2_FILEPATH);
+    ball_texture_id = load_texture(BALL_FILEPATH);
 
-    view_matrix = glm::mat4(1.0f);  // Defines the position (location and orientation) of the camera
-    m_projection_matrix = glm::ortho(-5.0f, 5.0f, -3.75f, 3.75f, -1.0f, 1.0f);  // Defines the characteristics of your camera, such as clip planes, field of view, projection method etc.
+    p1w_id = load_texture(P1WIN_FILEPATH);
+    p2w_id = load_texture(P2WIN_FILEPATH);
+    start_text_id = load_texture(START_TEXT_FILEPATH);
 
-    g_shader_program.set_projection_matrix(m_projection_matrix);
-    g_shader_program.set_view_matrix(view_matrix);
-    // Notice we haven't set our model matrix yet!
+    g_model_matrix = glm::mat4(1.0f); ///???????????????
+    g_view_matrix = glm::mat4(1.0f);
+    g_projection_matrix = glm::ortho(-5.0f, 5.0f, -3.75f, 3.75f, -1.0f, 1.0f);
+    
+    player1_top = glm::mat4(1.0f);
+    player1_middle = glm::mat4(1.0f);
+    player1_bottom = glm::mat4(1.0f);
+
+    player2_top = glm::mat4(1.0f);
+    player2_middle = glm::mat4(1.0f);
+    player2_bottom = glm::mat4(1.0f);
+
+
+    g_shader_program.set_projection_matrix(g_projection_matrix);
+    g_shader_program.set_view_matrix(g_view_matrix);
 
     glUseProgram(g_shader_program.get_program_id());
-
     glClearColor(BG_RED, BG_BLUE, BG_GREEN, BG_OPACITY);
 
-    cat_texture_id = load_texture(PLAYER_SPRITE_FILEPATH);
-    moon_texture_id = load_texture(MOON_FILEPATH);
-    fish_texture_id = load_texture(FISH_FILEPATH);
-
-    // enable blending
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void process_input()
 {
-    SDL_Event event;
-    while (SDL_PollEvent(&event))
+    player1_movement = glm::vec3(0.0f);      
+    player2_movement = glm::vec3(0.0f);
+    
+// –––––––––––––––––––––––––––––––– KEYSTROKES ––––––––––––––––––––––––– //
+                                                                         
+    SDL_Event event;                                                         
+    while (SDL_PollEvent(&event))                                            
+    {                                                                        
+        switch (event.type)                                                  
+        {                                                                    
+            // End game                                                      
+        case SDL_QUIT:                                                   
+        case SDL_WINDOWEVENT_CLOSE:                                      
+            g_game_is_running = false;                                   
+            break;                                                       
+            //
+        case SDL_KEYDOWN:                                                
+            switch (event.key.keysym.sym)                                
+            {                                                                                              
+                                                      
+                
+            case SDLK_q:                                             
+                // Quit the game with a keystroke                    
+                g_game_is_running = false;                           
+                break;                                               
+                //
+            case SDLK_t:
+                //turn player2 into cpu
+                cpu_mode = !cpu_mode;
+
+            default:                                                 
+                break;                                               
+            }                                                            
+                                                                         
+        default:                                                         
+            break;                                                       
+        }                                                                    
+    }                                                                        
+                                                                             
+    // ––––––––––––––––––––––––––––––– KEY HOLD (P1) –––––––––––––––––––––––––––– //
+                                                                             
+    const Uint8* key_state = SDL_GetKeyboardState(NULL);                     
+    //                                                                   
+                                                                             
+    if (key_state[SDL_SCANCODE_W])                                          
+    {                                                                        
+        player1_movement.y = 1.0f;                                          
+    }                                                                        
+    else if (key_state[SDL_SCANCODE_S])                                   
+    {                                                                        
+        player1_movement.y = -1.0f;                                         
+    }                                                                        
+
+    //––––––––––––––––––––––––––––––– P2 ––––––––––––––––––––––––––––//
+    if (key_state[SDL_SCANCODE_UP])
     {
-        if (event.type == SDL_QUIT || event.type == SDL_WINDOWEVENT_CLOSE)
-        {
-            g_game_is_running = false;
-        }
+        player2_movement.y = 1.0f;
+    }
+    else if (key_state[SDL_SCANCODE_DOWN])
+    {
+        player2_movement.y = -1.0f;
+    }
+
+    //––––––––––––––––––––––––––––––– OTHER ––––––––––––––––––––––––––––//
+    if (key_state[SDL_SCANCODE_SPACE]) { //starts the game
+        ball_movement.x = -1.0f;
+        ball_movement.y = 0.0f;
+        game_won = false;
+        game_started = true;
+    }
+
+}
+
+void move3parts(glm::mat4& top, glm::mat4& mid, glm::mat4& bot, glm::vec3& position) {
+    mid = glm::translate(mid, position);
+    top = glm::translate(top, position + ytranslation);
+    bot = glm::translate(bot, position - ytranslation);
+}
+
+void updatePositionVecs(glm::vec3& top, glm::vec3& mid, glm::vec3& bot) { //update position vectors based on mid
+    top = mid + ytranslation;
+    bot = mid - ytranslation;
+}
+
+void toggleText(glm::mat4& text_mm, bool show) {
+    if (show) {
+        text_mm = glm::scale(text_mm, glm::vec3(4.0f, 4.0f, 0.0f));
+    }
+    else {
+        text_mm = glm::scale(text_mm, glm::vec3(0.0f, 0.0f, 0.0f));
     }
 }
 
+void resetBall() {
+    ball_position = glm::vec3(0.0f, 0.0f, 0.0f);
+    ball_movement.x = 0.0f;
+    ball_movement.y = 0.0f;
+}
 
 void update()
 {
     float ticks = (float)SDL_GetTicks() / MILLISECONDS_IN_SECOND; // get the current number of ticks
-    float delta_time = ticks - m_previous_ticks; // the delta time is the difference from the last frame
-    m_previous_ticks = ticks;
+    float delta_time = ticks - g_previous_ticks; // the delta time is the difference from the last frame
+    g_previous_ticks = ticks;
 
-    g_x_coord = 1.0f;
+    glm::vec3 scale_vector = glm::vec3(1.3f, 1.3f, 1.3f);
+    glm::vec3 ball_scale_vector = glm::vec3(0.3f, 0.3f, 0.3f);
 
-    glm::vec3 scale_vector;
-    glm::vec3 moon_scale_vector;
+    start_text_mm = glm::mat4(1.0f);
+    p1_win_mm = glm::mat4(1.0f);
+    p2_win_mm = glm::mat4(1.0f);
 
-    g_angle += ROT_SPEED; // for rotating the moon
-      
-    scale_vector = glm::vec3(2.0f, 2.0f,2.0f);
-    moon_scale_vector = glm::vec3(1.0f, 1.0f, 1.0f);
+    if (winner == 0) {
+        toggleText(p1_win_mm, false);
+        toggleText(p2_win_mm, false);
+    }
+    if (game_started) {
+        toggleText(start_text_mm, false);
+        winner = 0;
+    }
+    else
+    {
+        toggleText(start_text_mm, true);
+        if (winner == 1) toggleText(p1_win_mm, true);
+        else if (winner == 2) toggleText(p2_win_mm, true);
+    }
 
-    g_x_coord = RADIUS * glm::cos(g_angle);
-    g_y_coord = RADIUS * glm::sin(g_angle);
+    player1_mid_pos += player1_movement * g_player_speed * delta_time;   //
+    if (player1_mid_pos.y > 3.0) player1_mid_pos.y = 3.0;
+    if (player1_mid_pos.y < -3.0) player1_mid_pos.y = -3.0;
 
-    //Fish movement: If fish reaches a certain point of the screen,
-    //it gets moved back to the left off screen
-    if (fish_x > 10.0) { fish_x = -10.0; }
-    fish_x += (2.0f*delta_time);
+    player1_middle = glm::mat4(1.0f);                         
+    player1_top = glm::mat4(1.0f);
+    player1_bottom = glm::mat4(1.0f);
 
-    cat_model_matrix = glm::mat4(1.0f);
-    fish_model_matrix = glm::mat4(1.0f);
+    move3parts(player1_top, player1_middle, player1_bottom, player1_mid_pos);
+    updatePositionVecs(player1_top_pos, player1_mid_pos, player1_bot_pos);
+    //
+    // –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––– //
 
-    //Translating
-    fish_model_matrix = glm::translate(fish_model_matrix, glm::vec3(fish_x, 0.0f, 0.0f));
-    cat_model_matrix = glm::translate(moon_model_matrix, glm::vec3(g_x_coord, g_y_coord, 0.0f));
-   
-    //Scaling
-    cat_model_matrix = glm::scale(cat_model_matrix, scale_vector);
-    moon_model_matrix = glm::scale(moon_model_matrix, moon_scale_vector);
-    fish_model_matrix = glm::scale(fish_model_matrix, glm::vec3(5.0f, 5.0f, 5.0f));
 
-    //Rotate
-    moon_model_matrix = glm::rotate(moon_model_matrix, ROT_ANGLE, glm::vec3(0.0f, 0.0f, 1.0f));
-}
+    //PLAYER 2 MOVEMENTS (checking for cpu mode)//
+    if (!cpu_mode) {
+
+        player2_mid_pos += player2_movement * g_player_speed * delta_time;
+        if (player2_mid_pos.y > 3.0)  player2_mid_pos.y = 3.0; 
+        if (player2_mid_pos.y < -3.0) player2_mid_pos.y = -3.0; 
+    }
+    else {
+        if (player2_mid_pos.y > 3.0) {
+            player2_mid_pos.y = 3.0;
+            cpu_movement.y = -1.0;
+        }
+        if (player2_mid_pos.y < -3.0) {
+            player2_mid_pos.y = -3.0;
+            cpu_movement.y = 1.0;
+        }
+        player2_mid_pos += cpu_movement * g_player_speed * delta_time;
+    }
+
+    player2_middle = glm::mat4(1.0f);
+    player2_top = glm::mat4(1.0f);
+    player2_bottom = glm::mat4(1.0f);
+
+    move3parts(player2_top, player2_middle, player2_bottom, player2_mid_pos);
+    updatePositionVecs(player2_top_pos, player2_mid_pos, player2_bot_pos);
+
+    //--------------------------------------------BALL COLLISIONS--------------------------------------
+  
+    //Middle paddle collision
+    if (check_collision(ball_position, player1_mid_pos, true) || check_collision(ball_position, player2_mid_pos, true)) { 
+        ball_movement.x = (ball_movement.x <= 0) ? 1.4f : -1.4f;
+        if (ball_movement.y >= 0) ball_movement.y = -0.05f;
+        else if (ball_movement.y < 0) ball_movement.y = 0.05f;
+    }
+
+    //Top paddle collision
+    else if (check_collision(ball_position, player1_top_pos, false) || check_collision(ball_position, player2_top_pos, false)) {
+        ball_movement.x = -ball_movement.x;
+        ball_movement.y = 1.0f;
+    }
+
+    //Bottom paddle collision
+    else if (check_collision(ball_position, player1_bot_pos, false) || check_collision(ball_position, player2_bot_pos, false)) {
+        ball_movement.x = -ball_movement.x;
+        ball_movement.y = -1.0f;
+    }
+
+    //Checking vertical border hits
+    if (ball_position.y > bordery) {
+        ball_position.y = 3.5;
+        ball_movement.y = -ball_movement.y;
+    }
+
+    else if (ball_position.y < -bordery) {
+        ball_position.y = -3.5;
+        ball_movement.y = -ball_movement.y;
+    }
+
+    if (ball_position.x < -borderx){ //P2 wins
+        winner = 2;
+        game_started = false;
+        game_won = true;
+        resetBall();
+    }
+        
+    else if (ball_position.x > borderx) { //P1 wins
+        winner = 1;
+        game_started = false;
+        game_won = true;
+        resetBall();
+    }
+
+    ball_position += ball_movement * g_player_speed * delta_time;
+
+    ball_model_matrix = glm::mat4(1.0f);
+    ball_model_matrix = glm::translate(ball_model_matrix, ball_position);
+    ball_model_matrix = glm::rotate(ball_model_matrix, ROT_ANGLE, ball_position);
+
+
+    //scalings
+    player1_middle = glm::scale(player1_middle, scale_vector);
+    player2_middle = glm::scale(player2_middle, scale_vector);
+    ball_model_matrix = glm::scale(ball_model_matrix, ball_scale_vector);
+    } //end update
+    
+
 
 void draw_object(glm::mat4& object_model_matrix, GLuint& object_texture_id)
 {
     g_shader_program.set_model_matrix(object_model_matrix);
     glBindTexture(GL_TEXTURE_2D, object_texture_id);
-    glDrawArrays(GL_TRIANGLES, 0, 6); // we are now drawing 2 triangles, so we use 6 instead of 3
+    glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 
-void render() {
+
+void render()
+{
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Vertices
     float vertices[] = {
-        -0.5f, -0.5f, 0.5f, -0.5f, 0.5f, 0.5f,  // triangle 1
-        -0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f   // triangle 2
+        -0.5f, -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, 
+        -0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f   
     };
 
     // Textures
     float texture_coordinates[] = {
-        0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f,     // triangle 1
-        0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f,     // triangle 2
+        0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f,     
+        0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f,     
     };
 
     glVertexAttribPointer(g_shader_program.get_position_attribute(), 2, GL_FLOAT, false, 0, vertices);
@@ -249,9 +456,14 @@ void render() {
     glEnableVertexAttribArray(g_shader_program.get_tex_coordinate_attribute());
 
     // Bind texture
-    draw_object(cat_model_matrix, cat_texture_id);
-    draw_object(moon_model_matrix, moon_texture_id);
-    draw_object(fish_model_matrix, fish_texture_id);
+    draw_object(player1_middle, g_player_texture_id);
+    draw_object(player2_middle, player2_texture_id);
+    draw_object(ball_model_matrix, ball_texture_id);
+
+    draw_object(start_text_mm, start_text_id);
+    draw_object(p1_win_mm, p1w_id);
+    draw_object(p2_win_mm, p2w_id);
+    
 
     // We disable two attribute arrays now
     glDisableVertexAttribArray(g_shader_program.get_position_attribute());
@@ -260,13 +472,10 @@ void render() {
     SDL_GL_SwapWindow(g_display_window);
 }
 
-void shutdown()
-{
-}
 
-/**
- Start here—we can see the general structure of a game loop without worrying too much about the details yet.
- */
+void shutdown() { SDL_Quit(); }
+
+
 int main(int argc, char* argv[])
 {
     initialise();
